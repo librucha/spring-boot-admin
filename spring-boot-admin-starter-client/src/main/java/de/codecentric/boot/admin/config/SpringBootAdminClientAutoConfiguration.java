@@ -15,100 +15,72 @@
  */
 package de.codecentric.boot.admin.config;
 
-import java.util.Arrays;
-
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
-import org.springframework.scheduling.config.ScheduledTaskRegistrar;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
-import de.codecentric.boot.admin.actuate.LogfileMvcEndpoint;
 import de.codecentric.boot.admin.services.ApplicationRegistrator;
 import de.codecentric.boot.admin.services.RegistrationApplicationListener;
-import de.codecentric.boot.admin.web.BasicAuthHttpRequestInterceptor;
 
-/**
- * This configuration adds a registrator bean to the spring context. This bean
- * checks periodicaly, if the using application is registered at the
- * spring-boot-admin application. If not, it registers itself.
- */
 @Configuration
+@EnableConfigurationProperties({ AdminProperties.class, AdminClientProperties.class })
+@Conditional(SpringBootAdminClientEnabledCondition.class)
 public class SpringBootAdminClientAutoConfiguration {
 
-	@ConditionalOnProperty("spring.boot.admin.url")
-	@EnableConfigurationProperties({ AdminProperties.class, AdminClientProperties.class })
-	public static class AdminClientRegistrationConfig {
-		/**
-		 * Task that registers the application at the spring-boot-admin
-		 * application.
-		 */
-		@Bean
-		@ConditionalOnMissingBean
-		public ApplicationRegistrator registrator(AdminProperties admin, AdminClientProperties client) {
-			return new ApplicationRegistrator(createRestTemplate(admin), admin, client);
+	@Autowired
+	private AdminClientProperties client;
+
+	@Autowired
+	private AdminProperties admin;
+
+	@Autowired
+	private RestTemplateBuilder restTemplBuilder;
+
+	/**
+	 * Task that registers the application at the spring-boot-admin application.
+	 */
+	@Bean
+	@ConditionalOnMissingBean
+	public ApplicationRegistrator registrator() {
+		RestTemplateBuilder builder = restTemplBuilder
+				.messageConverters(new MappingJackson2HttpMessageConverter())
+				.requestFactory(SimpleClientHttpRequestFactory.class);
+		if (admin.getUsername() != null) {
+			builder = builder.basicAuthorization(admin.getUsername(), admin.getPassword());
 		}
-
-		protected RestTemplate createRestTemplate(AdminProperties admin) {
-			RestTemplate template = new RestTemplate();
-			template.getMessageConverters().add(new MappingJackson2HttpMessageConverter());
-
-			if (admin.getUsername() != null) {
-				template.setInterceptors(Arrays.<ClientHttpRequestInterceptor> asList(
-						new BasicAuthHttpRequestInterceptor(admin.getUsername(), admin.getPassword())));
-			}
-
-			return template;
-		}
-
-		/**
-		 * TaskRegistrar that triggers the RegistratorTask every ten seconds.
-		 */
-		@Bean
-		public ScheduledTaskRegistrar taskRegistrar(final ApplicationRegistrator registrator, AdminProperties admin,
-				final AdminClientProperties client) {
-			ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
-			Runnable registratorTask = new Runnable() {
-				@Override
-				public void run() {
-					if (client.isServerInitialized()) {
-						registrator.register();
-					}
-				}
-			};
-
-			registrar.addFixedRateTask(registratorTask, admin.getPeriod());
-			return registrar;
-		}
-
-		/**
-		 * ApplicationListener triggering registration after refresh/shutdown
-		 */
-		@Bean
-		public RegistrationApplicationListener registrationListener(
-				ApplicationRegistrator registrator, AdminProperties admin) {
-			return new RegistrationApplicationListener(admin, registrator);
-		}
-
+		return new ApplicationRegistrator(builder.build(), admin, client);
 	}
 
-	@Configuration
-	@ConditionalOnExpression("${endpoints.logfile.enabled:true}")
-	@ConditionalOnProperty("logging.file")
-	public static class LogfileEndpointAutoConfiguration {
-
-		/**
-		 * Exposes the logfile as acutator endpoint
-		 */
-		@Bean
-		public LogfileMvcEndpoint logfileEndpoint() {
-			return new LogfileMvcEndpoint();
-		}
+	@Bean
+	@Qualifier("registrationTaskScheduler")
+	public TaskScheduler registrationTaskScheduler() {
+		ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
+		taskScheduler.setPoolSize(1);
+		taskScheduler.setRemoveOnCancelPolicy(true);
+		taskScheduler.setThreadNamePrefix("registrationTask");
+		return taskScheduler;
 	}
 
+	/**
+	 * ApplicationListener triggering registration after being ready/shutdown
+	 */
+	@Bean
+	@ConditionalOnMissingBean
+	public RegistrationApplicationListener registrationListener() {
+		RegistrationApplicationListener listener = new RegistrationApplicationListener(
+				registrator(), registrationTaskScheduler());
+		listener.setAutoRegister(admin.isAutoRegistration());
+		listener.setAutoDeregister(admin.isAutoDeregistration());
+		listener.setRegisterPeriod(admin.getPeriod());
+		return listener;
+	}
 }

@@ -6,10 +6,10 @@ import org.junit.After;
 import org.junit.Test;
 import org.springframework.boot.actuate.autoconfigure.ManagementServerPropertiesAutoConfiguration;
 import org.springframework.boot.autoconfigure.web.ServerPropertiesAutoConfiguration;
-import org.springframework.boot.test.EnvironmentTestUtils;
+import org.springframework.boot.autoconfigure.web.WebClientAutoConfiguration.RestTemplateConfiguration;
+import org.springframework.boot.test.util.EnvironmentTestUtils;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 
-import de.codecentric.boot.admin.actuate.LogfileMvcEndpoint;
 import de.codecentric.boot.admin.services.ApplicationRegistrator;
 
 public class SpringBootAdminClientAutoConfigurationTest {
@@ -27,40 +27,25 @@ public class SpringBootAdminClientAutoConfigurationTest {
 	public void not_active() {
 		load();
 		assertTrue(context.getBeansOfType(ApplicationRegistrator.class).isEmpty());
-		assertTrue(context.getBeansOfType(LogfileMvcEndpoint.class).isEmpty());
-	}
-
-	public void not_active_logfile() {
-		load();
-		assertTrue(context.getBeansOfType(ApplicationRegistrator.class).isEmpty());
-		context.getBean(LogfileMvcEndpoint.class);
 	}
 
 	@Test
-	public void active_nologfile() {
+	public void active() {
 		load("spring.boot.admin.url:http://localhost:8081");
 		context.getBean(ApplicationRegistrator.class);
-		assertTrue(context.getBeansOfType(LogfileMvcEndpoint.class).isEmpty());
 	}
 
 	@Test
-	public void active_logfile() {
-		load("spring.boot.admin.url:http://localhost:8081", "logging.file:spring.log");
-		context.getBean(LogfileMvcEndpoint.class);
-		context.getBean(ApplicationRegistrator.class);
-	}
-
-	@Test
-	public void active_logfile_supressed() {
-		load("spring.boot.admin.url:http://localhost:8081", "logging.file:spring.log",
-				"endpoints.logfile.enabled:false");
-		context.getBean(ApplicationRegistrator.class);
-		assertTrue(context.getBeansOfType(LogfileMvcEndpoint.class).isEmpty());
+	public void disabled() {
+		load("spring.boot.admin.url:http://localhost:8081",
+				"spring.boot.admin.client.enabled:false");
+		assertTrue(context.getBeansOfType(ApplicationRegistrator.class).isEmpty());
 	}
 
 	private void load(String... environment) {
 		AnnotationConfigWebApplicationContext applicationContext = new AnnotationConfigWebApplicationContext();
 		applicationContext.register(ServerPropertiesAutoConfiguration.class);
+		applicationContext.register(RestTemplateConfiguration.class);
 		applicationContext.register(ManagementServerPropertiesAutoConfiguration.class);
 		applicationContext.register(SpringBootAdminClientAutoConfiguration.class);
 		EnvironmentTestUtils.addEnvironment(applicationContext, environment);

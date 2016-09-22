@@ -1,5 +1,5 @@
 info:
-  version: @pom.version@
+  scm-url: @scm.url@
   stage: test
 
 logging:
@@ -8,15 +8,10 @@ logging:
 spring:
   application:
     name: @pom.artifactId@
-  boot:
-    admin:
-      url: http://localhost:8080
-  cloud:
-    config:
-      enabled: false
-  jackson:
-    serialization:
-      indent_output: true
+
+# tag::configuration-sba-client[]
+spring.boot.admin.url: http://localhost:8080
+# end::configuration-sba-client[]
 
 endpoints:
   health:

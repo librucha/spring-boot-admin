@@ -1,64 +1,102 @@
+/*
+ * Copyright 2014 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package de.codecentric.boot.admin.services;
 
-import org.springframework.boot.context.embedded.EmbeddedServletContainerInitializedEvent;
-import org.springframework.boot.context.embedded.EmbeddedWebApplicationContext;
-import org.springframework.context.ApplicationEvent;
-import org.springframework.context.ApplicationListener;
-import org.springframework.context.event.ApplicationContextEvent;
+import java.util.concurrent.ScheduledFuture;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.ContextClosedEvent;
-import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.core.task.SimpleAsyncTaskExecutor;
-import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.TaskScheduler;
 
-import de.codecentric.boot.admin.config.AdminProperties;
-
-@Order(Ordered.LOWEST_PRECEDENCE)
-public class RegistrationApplicationListener implements ApplicationListener<ApplicationEvent> {
-	private final AdminProperties admin;
+/**
+ * Listener responsible for starting and stopping the registration task when the application is
+ * ready.
+ *
+ * @author Johannes Edmeier
+ */
+public class RegistrationApplicationListener {
+	private static Logger LOGGER = LoggerFactory.getLogger(RegistrationApplicationListener.class);
 	private final ApplicationRegistrator registrator;
-	private final TaskExecutor executor;
+	private final TaskScheduler taskScheduler;
+	private boolean autoDeregister = false;
+	private boolean autoRegister = true;
+	private long registerPeriod = 10_000L;
+	private volatile ScheduledFuture<?> scheduledTask;
 
-	public RegistrationApplicationListener(AdminProperties admin,
-			ApplicationRegistrator registrator, TaskExecutor executor) {
-		this.admin = admin;
+	public RegistrationApplicationListener(ApplicationRegistrator registrator,
+			TaskScheduler taskScheduler) {
 		this.registrator = registrator;
-		this.executor = executor;
+		this.taskScheduler = taskScheduler;
 	}
 
-	public RegistrationApplicationListener(AdminProperties admin,
-			ApplicationRegistrator registrator) {
-		this(admin, registrator, new SimpleAsyncTaskExecutor());
-	}
-
-	@Override
-	public void onApplicationEvent(ApplicationEvent event) {
-		if (startedDeployedWar(event) || startedEmbeddedServer(event)) {
-			executor.execute(new Runnable() {
-				@Override
-				public void run() {
-					registrator.register();
-				}
-			});
-		} else if (admin.isAutoDeregistration() && event instanceof ContextClosedEvent) {
-			registrator.deregister();
+	@EventListener
+	@Order(Ordered.LOWEST_PRECEDENCE)
+	public void onApplicationReady(ApplicationReadyEvent event) {
+		if (event.getApplicationContext().getParent() == null && autoRegister) {
+			startRegisterTask();
 		}
 	}
 
-	private boolean startedEmbeddedServer(ApplicationEvent event) {
-		return event instanceof EmbeddedServletContainerInitializedEvent;
-	}
+	@EventListener
+	@Order(Ordered.LOWEST_PRECEDENCE)
+	public void onClosedContext(ContextClosedEvent event) {
+		if (event.getApplicationContext().getParent() == null) {
+			stopRegisterTask();
 
-	private boolean startedDeployedWar(ApplicationEvent event) {
-		if (event instanceof ContextRefreshedEvent) {
-			ApplicationContextEvent contextEvent = (ApplicationContextEvent) event;
-			if (contextEvent.getApplicationContext() instanceof EmbeddedWebApplicationContext) {
-				EmbeddedWebApplicationContext context = (EmbeddedWebApplicationContext) contextEvent
-						.getApplicationContext();
-				return context.getEmbeddedServletContainer() == null;
+			if (autoDeregister) {
+				registrator.deregister();
 			}
 		}
-		return false;
+	}
+
+	public void startRegisterTask() {
+		if (scheduledTask != null && !scheduledTask.isDone()) {
+			return;
+		}
+
+		scheduledTask = taskScheduler.scheduleAtFixedRate(new Runnable() {
+			@Override
+			public void run() {
+				registrator.register();
+			}
+		}, registerPeriod);
+		LOGGER.debug("Scheduled registration task for every {}ms", registerPeriod);
+	}
+
+	public void stopRegisterTask() {
+		if (scheduledTask != null && !scheduledTask.isDone()) {
+			scheduledTask.cancel(true);
+			LOGGER.debug("Canceled registration task");
+		}
+	}
+
+	public void setAutoDeregister(boolean autoDeregister) {
+		this.autoDeregister = autoDeregister;
+	}
+
+	public void setAutoRegister(boolean autoRegister) {
+		this.autoRegister = autoRegister;
+	}
+
+	public void setRegisterPeriod(long registerPeriod) {
+		this.registerPeriod = registerPeriod;
 	}
 }

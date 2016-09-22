@@ -15,144 +15,113 @@
  */
 package de.codecentric.boot.admin.config;
 
-import java.util.Map;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.Endpoint;
 import org.springframework.boot.actuate.trace.TraceRepository;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.web.ServerProperties;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.cloud.netflix.zuul.RoutesEndpoint;
-import org.springframework.cloud.netflix.zuul.ZuulFilterInitializer;
+import org.springframework.cloud.netflix.zuul.ZuulConfiguration;
 import org.springframework.cloud.netflix.zuul.filters.ProxyRequestHelper;
-import org.springframework.cloud.netflix.zuul.filters.ProxyRouteLocator;
 import org.springframework.cloud.netflix.zuul.filters.RouteLocator;
-import org.springframework.cloud.netflix.zuul.filters.ZuulProperties;
-import org.springframework.cloud.netflix.zuul.filters.post.SendErrorFilter;
-import org.springframework.cloud.netflix.zuul.filters.post.SendResponseFilter;
-import org.springframework.cloud.netflix.zuul.filters.pre.DebugFilter;
-import org.springframework.cloud.netflix.zuul.filters.pre.FormBodyWrapperFilter;
+import org.springframework.cloud.netflix.zuul.filters.TraceProxyRequestHelper;
 import org.springframework.cloud.netflix.zuul.filters.pre.PreDecorationFilter;
-import org.springframework.cloud.netflix.zuul.filters.pre.Servlet30WrapperFilter;
 import org.springframework.cloud.netflix.zuul.filters.route.SimpleHostRoutingFilter;
 import org.springframework.cloud.netflix.zuul.web.ZuulController;
 import org.springframework.cloud.netflix.zuul.web.ZuulHandlerMapping;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.PayloadApplicationEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import com.netflix.zuul.ZuulFilter;
-
-import de.codecentric.boot.admin.controller.RegistryController;
+import de.codecentric.boot.admin.event.RoutesOutdatedEvent;
 import de.codecentric.boot.admin.registry.ApplicationRegistry;
 import de.codecentric.boot.admin.zuul.ApplicationRouteLocator;
-import de.codecentric.boot.admin.zuul.ApplicationRouteRefreshListener;
+import de.codecentric.boot.admin.zuul.OptionsDispatchingZuulController;
 
 @Configuration
-@EnableConfigurationProperties(ZuulProperties.class)
-public class RevereseZuulProxyConfiguration {
+@AutoConfigureAfter({ AdminServerWebConfiguration.class })
+public class RevereseZuulProxyConfiguration extends ZuulConfiguration {
 
 	@Autowired(required = false)
 	private TraceRepository traces;
 
 	@Autowired
-	private ZuulProperties zuulProperties;
-
-	@Autowired
-	private ServerProperties server;
-
-	@Autowired
 	private ApplicationRegistry registry;
 
+	@Autowired
+	private AdminServerProperties adminServer;
+
+	@Autowired
+	private ZuulHandlerMapping zuulHandlerMapping;
+
 	@Bean
+	@Override
+	@ConfigurationProperties("spring.boot.admin.routes")
 	public ApplicationRouteLocator routeLocator() {
-		return new ApplicationRouteLocator(this.server.getServletPrefix(), registry, this.zuulProperties,
-				RegistryController.PATH);
+		return new ApplicationRouteLocator(this.server.getServletPrefix(), registry,
+				adminServer.getContextPath() + "/api/applications/");
 	}
 
 	@Bean
+	@Override
+	public ZuulController zuulController() {
+		return new OptionsDispatchingZuulController();
+	}
+
+	@Bean
+	public ProxyRequestHelper proxyRequestHelper() {
+		TraceProxyRequestHelper helper = new TraceProxyRequestHelper();
+		if (this.traces != null) {
+			helper.setTraces(this.traces);
+		}
+		helper.setIgnoredHeaders(this.zuulProperties.getIgnoredHeaders());
+		helper.setTraceRequestBody(this.zuulProperties.isTraceRequestBody());
+		return helper;
+	}
+
+	// pre filters
+	@Bean
 	public PreDecorationFilter preDecorationFilter() {
-		return new PreDecorationFilter(routeLocator(), this.zuulProperties.isAddProxyHeaders());
+		return new PreDecorationFilter(routeLocator(), this.server.getServletPrefix(),
+				zuulProperties, proxyRequestHelper());
 	}
 
 	@Bean
 	public SimpleHostRoutingFilter simpleHostRoutingFilter() {
-		ProxyRequestHelper helper = new ProxyRequestHelper();
-		if (this.traces != null) {
-			helper.setTraces(this.traces);
-		}
-		return new SimpleHostRoutingFilter(helper);
+		return new SimpleHostRoutingFilter(proxyRequestHelper(), zuulProperties);
 	}
 
 	@Bean
-	public ZuulController zuulController() {
-		return new ZuulController();
-	}
-
-	@Bean
-	public ZuulHandlerMapping zuulHandlerMapping(RouteLocator routes) {
-		return new ZuulHandlerMapping(routes, zuulController());
-	}
-
-	// pre filters
-
-	@Bean
-	public FormBodyWrapperFilter formBodyWrapperFilter() {
-		return new FormBodyWrapperFilter();
-	}
-
-	@Bean
-	public DebugFilter debugFilter() {
-		return new DebugFilter();
-	}
-
-	@Bean
-	public Servlet30WrapperFilter servlet30WrapperFilter() {
-		return new Servlet30WrapperFilter();
-	}
-
-	// post filters
-
-	@Bean
-	public SendResponseFilter sendResponseFilter() {
-		return new SendResponseFilter();
-	}
-
-	@Bean
-	public SendErrorFilter sendErrorFilter() {
-		return new SendErrorFilter();
-	}
-
-	@Configuration
-	protected static class ZuulFilterConfiguration {
-
-		@Autowired
-		private Map<String, ZuulFilter> filters;
-
-		@Bean
-		public ZuulFilterInitializer zuulFilterInitializer() {
-			return new ZuulFilterInitializer(this.filters);
-		}
-
-	}
-
-	@Bean
-	public ApplicationRouteRefreshListener applicationRouteRefreshListener() {
-		return new ApplicationRouteRefreshListener(routeLocator(), zuulHandlerMapping(routeLocator()));
+	@Override
+	public ApplicationListener<ApplicationEvent> zuulRefreshRoutesListener() {
+		return new ZuulRefreshListener(zuulHandlerMapping);
 	}
 
 	@Configuration
 	@ConditionalOnClass(Endpoint.class)
 	protected static class RoutesEndpointConfiguration {
-
-		@Autowired
-		private ProxyRouteLocator routeLocator;
-
 		@Bean
-		public RoutesEndpoint zuulEndpoint() {
-			return new RoutesEndpoint(this.routeLocator);
+		public RoutesEndpoint zuulEndpoint(RouteLocator routeLocator) {
+			return new RoutesEndpoint(routeLocator);
 		}
-
 	}
 
+	private static class ZuulRefreshListener implements ApplicationListener<ApplicationEvent> {
+		private ZuulHandlerMapping zuulHandlerMapping;
+
+		private ZuulRefreshListener(ZuulHandlerMapping zuulHandlerMapping) {
+			this.zuulHandlerMapping = zuulHandlerMapping;
+		}
+
+		@Override
+		public void onApplicationEvent(ApplicationEvent event) {
+			if (event instanceof PayloadApplicationEvent && ((PayloadApplicationEvent<?>) event)
+					.getPayload() instanceof RoutesOutdatedEvent) {
+				zuulHandlerMapping.setDirty(true);
+			}
+		}
+	}
 }

@@ -5,8 +5,15 @@ target/
 .settings/
 .classpath
 .project
+.factorypath
 
 # Intellij
 .idea/
 *.iml
 *.iws
+
+#vscode
+.vscode/
+
+# gnupg keyring
+/.gnupg

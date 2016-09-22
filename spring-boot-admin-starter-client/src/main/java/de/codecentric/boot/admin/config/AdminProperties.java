@@ -21,19 +21,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AdminProperties {
 
 	/**
-	 * The admin servers url to register at
+	 * The admin server urls to register at
 	 */
-	private String url;
+	private String[] url;
 
 	/**
-	 * The admin servers context path.
+	 * The admin rest-apis path.
 	 */
-	private String contextPath = "api/applications";
+	private String apiPath = "api/applications";
 
 	/**
 	 * Time interval (in ms) the registration is repeated
 	 */
-	private int period = 10000;
+	private long period = 10_000L;
 
 	/**
 	 * Username for basic authentication on admin server
@@ -50,22 +50,41 @@ public class AdminProperties {
 	 */
 	private boolean autoDeregistration;
 
-	public void setUrl(String url) {
-		this.url = url;
-	}
-	public String getUrl() {
-		return url;
+	/**
+	 * Enable automatic registration when the application is ready
+	 */
+	private boolean autoRegistration = true;
+
+	/**
+	 * Enable registration against one or all admin servers
+	 */
+	private boolean registerOnce = true;
+
+	public void setUrl(String[] url) {
+		this.url = url.clone();
 	}
 
-	public String getContextPath() {
-		return contextPath;
+	public String[] getUrl() {
+		return url.clone();
 	}
 
-	public void setContextPath(String contextPath) {
-		this.contextPath = contextPath;
+	public void setApiPath(String apiPath) {
+		this.apiPath = apiPath;
 	}
 
-	public int getPeriod() {
+	public String getApiPath() {
+		return apiPath;
+	}
+
+	public String[] getAdminUrl() {
+		String adminUrls[] = url.clone();
+		for (int i = 0; i < adminUrls.length; i++) {
+			adminUrls[i] += "/" + apiPath;
+		}
+		return adminUrls;
+	}
+
+	public long getPeriod() {
 		return period;
 	}
 
@@ -95,5 +114,21 @@ public class AdminProperties {
 
 	public void setAutoDeregistration(boolean autoDeregistration) {
 		this.autoDeregistration = autoDeregistration;
+	}
+
+	public boolean isAutoRegistration() {
+		return autoRegistration;
+	}
+
+	public void setAutoRegistration(boolean autoRegistration) {
+		this.autoRegistration = autoRegistration;
+	}
+
+	public boolean isRegisterOnce() {
+		return registerOnce;
+	}
+
+	public void setRegisterOnce(boolean registerOnce) {
+		this.registerOnce = registerOnce;
 	}
 }

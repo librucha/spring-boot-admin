@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>de.codecentric</groupId>
 		<artifactId>spring-boot-admin</artifactId>
-		<version>1.3.0-SNAPSHOT</version>
+		<version>1.4.2-SNAPSHOT</version>
 		<relativePath>..</relativePath>
 	</parent>
 	<artifactId>spring-boot-admin-server</artifactId>
@@ -18,19 +18,9 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-mail</artifactId>
-		</dependency>
-		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-configuration-processor</artifactId>
-			<optional>true</optional>
-		</dependency>
-
 		<!-- Use Zuul WITHOUT Hystrix/Ribbon/Config Client -->
 		<dependency>
 			<groupId>com.netflix.zuul</groupId>
@@ -48,30 +38,45 @@
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpclient</artifactId>
 		</dependency>
-
+		<!-- Optional Mail Starter for mail-notfications -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+			<optional>true</optional>
+		</dependency>
 		<!-- Optional Discovery Client -->
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter</artifactId>
 			<optional>true</optional>
 		</dependency>
-
+		<!-- Optional Eureka Discovery Client -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-eureka</artifactId>
+			<optional>true</optional>
+		</dependency>
 		<!-- Optional Hazelcast-Support -->
 		<dependency>
 			<groupId>com.hazelcast</groupId>
 			<artifactId>hazelcast</artifactId>
 			<optional>true</optional>
 		</dependency>
+		<!-- Optional Configuration Processor for metadata -->
 		<dependency>
-			<groupId>com.hazelcast</groupId>
-			<artifactId>hazelcast-spring</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-configuration-processor</artifactId>
 			<optional>true</optional>
 		</dependency>
-
 		<!-- Test -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.jayway.jsonpath</groupId>
+			<artifactId>json-path</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
